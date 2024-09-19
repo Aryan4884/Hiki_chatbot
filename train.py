@@ -1,8 +1,9 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import nltk
-nltk.download('punkt')
 import re
+
+nltk.download('punkt')
 
 # Load data from CSV files
 products_data = pd.read_csv('products.csv')
@@ -13,11 +14,13 @@ stores_data = pd.read_csv('stores.csv')
 # Clean and prepare data
 products_data['Price'] = products_data['Price'].replace({'\? ': '', ',': ''}, regex=True).astype(float, errors='ignore')
 
-# State to track ongoing conversations
-conversation_state = {
-    'expecting_budget': False,
-    'expecting_order_details': False
-}
+# Initialize conversation state in session_state
+if 'conversation_state' not in st.session_state:
+    st.session_state.conversation_state = {
+        'expecting_budget': False,
+        'expecting_order_details': False,
+        'product_function': None
+    }
 
 # Welcome message
 def welcome_message():
@@ -27,8 +30,7 @@ def welcome_message():
 def filter_products_by_category(df, category):
     return df[df['Category'].str.contains(category, case=False, na=False)]
 
-# Functions to get products based on specific categorie
-
+# Functions to get products based on specific categories
 def get_computers(df, min_budget=None, max_budget=None):
     return filter_products_by_category_and_budget(df, 'Computers', min_budget, max_budget)
 
@@ -41,80 +43,90 @@ def get_home_appliances(df, min_budget=None, max_budget=None):
 # Function to handle user input and return relevant products
 def handle_user_input(user_input):
     user_input_lower = user_input.lower()
-    
-   
+    response = process_query(user_input_lower)
+    st.write(response)
+
 # Process the user query
 def process_query(user_input):
-    global conversation_state
     tokens = nltk.word_tokenize(user_input)
 
-    # Handle conversation states
-    if conversation_state['expecting_budget']:
+    # Handle conversation states using session_state
+    if st.session_state.conversation_state['expecting_budget']:
         return recommend_product_by_budget(user_input)
 
-    if conversation_state['expecting_order_details']:
+    if st.session_state.conversation_state['expecting_order_details']:
         return track_order_by_details(user_input)
-
-    # Handle general queries about product types
-    product_keywords = ['mobile', 'tv', 'laptop', 'tablet', 'camera']  # Add more as needed
-    for keyword in product_keywords:
-        if keyword in user_input:
-            conversation_state['expecting_budget'] = True
-            return f"Yes, of course. Can you please specify your budget for the {keyword}?"
 
     # Handle specific product queries with size or feature
     size_keywords = re.findall(r'\d+-inch', user_input, re.IGNORECASE)
     feature_keywords = ['4k', 'hdr', 'smart', 'wifi']  # Add more features as needed
 
     if any(size in user_input for size in size_keywords) and any(feature in user_input for feature in feature_keywords):
-        conversation_state['expecting_budget'] = True
+        st.session_state.conversation_state['expecting_budget'] = True
         return f"Yes, we have several options. Can you please specify your budget for a {user_input}?"
+    
 
-    elif 'computer' in user_input or 'computers' in user_input or 'laptop' in user_input:
-        conversation_state['expecting_budget'] = True
-        conversation_state['product_function'] = get_computers
+    elif 'computer' in user_input or 'computers' in user_input:
+        st.session_state.conversation_state['expecting_budget'] = True
+        st.session_state.conversation_state['product_function'] = get_computers
         return "Sure! You mentioned computers. Can you please specify your budget for the computers?"
 
     elif 'electronics' in user_input:
-        conversation_state['expecting_budget'] = True
-        conversation_state['product_function'] = get_electronics
+        st.session_state.conversation_state['expecting_budget'] = True
+        st.session_state.conversation_state['product_function'] = get_electronics
         return "Sure! You mentioned electronics. Can you please specify your budget for the electronics?"
 
-    elif 'home appliance' in user_input:
-        conversation_state['expecting_budget'] = True
-        conversation_state['product_function'] = get_home_appliances
+    elif 'appliance' in user_input:
+        st.session_state.conversation_state['expecting_budget'] = True
+        st.session_state.conversation_state['product_function'] = get_home_appliances
         return "Sure! You mentioned home appliances. Can you please specify your budget for the home appliances?"
     
-
+   
     # Handle other queries
     if "return" in tokens or "returning" in tokens:
         return handle_return(user_input)
-
+    
+    elif "last order" in user_input.lower():
+          return get_last_order_date(user_input)
+        
+    elif "order" in user_input.lower() or "status" in user_input.lower() or "received" in user_input.lower() or "ordered" in user_input.lower() or "receive" in user_input.lower():
+        st.session_state.conversation_state['expecting_order_details'] = True
+        return "Sure. Please provide your customer ID and product name to track your order."
+    
     elif "cancel" in tokens or "cancellation" in tokens:
         return handle_cancellation(user_input)
 
     elif "stock" in tokens or "stocks" in tokens:
         return check_stock(user_input)
+    
+    elif "how many stores" in user_input.lower() or "number of stores" in user_input.lower():
+        return store_count(user_input)
 
     elif "store" in tokens or "stores" in tokens or "location" in tokens or "branch" in tokens or "branches" in tokens:
         return store_locator(user_input)
 
-    elif "how many stores" in user_input:
-        return store_count(user_input)
-
-    elif "last order" in user_input:
-        return get_last_order_date(user_input)
-
-    elif "order" in user_input or "status" in user_input:
-        conversation_state['expecting_order_details'] = True
-        return "Sure. Please provide your customer ID and product name to track your order."
 
     elif "find product" in user_input and "id" in user_input:
         return find_product_name_by_id(user_input)
 
+    # Handle general queries about product types
+    product_keywords = ['mobile', 'tv', 'laptop', 'tablet', 'camera']  # Add more as needed
+    for keyword in product_keywords:
+        if keyword in user_input:
+            st.session_state.conversation_state['product_type'] = keyword.capitalize()  # Save product type
+            st.session_state.conversation_state['expecting_budget'] = True
+            return f"Yes, of course. Can you please specify your budget for the {keyword}?"
+        
+    # Handle product-specific queries based on previously saved product_type
+    product_type = st.session_state.conversation_state.get('product_type')
+    if product_type:
+        st.session_state.conversation_state['expecting_budget'] = True
+        return f"Yes, you are looking for {product_type}. Can you please specify your budget?"
+    
+        
     return "Sorry, I didn't understand that. Could you please rephrase?"
 
-
+    
 def filter_products_by_category_and_budget(df, category, min_budget=None, max_budget=None):
     filtered_df = filter_products_by_category(df, category)
     
@@ -138,71 +150,15 @@ data = {
         'Samsung Rerum Quidem', 'Xiaomi Magni Labore', 'LG At Dolores', 'Apple Ad Minima',
         'Godrej Mollitia Placeat', 'Lenovo Perferendis Perspiciatis', 'Samsung Eos Voluptas',
         'Acer Assumenda Eius', 'HP Ut Doloremque', 'Samsung Cumque Odio', 'Dell Dolore Soluta',
-        'Sony Atque Repudiandae', 'Panasonic Nam Quidem', 'Sony Itaque Necessitatibus', 'Sony Reiciendis Laborum',
-        'LG Illo Dignissimos', 'Samsung Sequi Asperiores', 'Whirlpool Consequatur Quidem', 'LG Ducimus Placeat',
-        'Whirlpool Saepe In', 'Godrej Rerum Delectus', 'Sony Accusantium Sequi', 'Panasonic Dolorem Placeat',
-        'Acer Expedita Omnis', 'Xiaomi Ad Sapiente', 'HP Cumque Placeat', 'Samsung Sequi Quibusdam',
-        'Whirlpool Voluptas Ex', 'Samsung Aliquid Quae', 'Samsung Aliquam Rerum', 'HP Accusantium Eius',
-        'OnePlus Voluptatibus Voluptates', 'Lenovo Saepe Et', 'HP Doloribus Nisi', 'Apple Odit Maxime',
-        'Lenovo Veniam Commodi', 'Samsung Aspernatur Iste', 'Samsung Non Ullam', 'Samsung Qui Pariatur',
-        'Dell Quis Veritatis', 'Samsung Nobis Quod', 'Panasonic Illo Accusantium', 'Dell Animi Nihil',
-        'Lenovo A Ratione', 'Samsung Iure Harum', 'Sony Similique Ullam', 'Whirlpool Deserunt Porro',
-        'OnePlus Consectetur In', 'Panasonic Ducimus Soluta', 'OnePlus Aspernatur Hic',
-        'Samsung Doloremque Accusantium', 'LG Explicabo Tempora', 'Sony Recusandae Architecto',
-        'Samsung Culpa Delectus', 'HP Quos Porro', 'Apple Ullam Non', 'Apple Occaecati Sit',
-        'Godrej Sapiente Expedita', 'Godrej Ullam Laborum', 'HP Repudiandae Doloribus', 'Acer Occaecati Molestiae',
-        'LG Doloremque Commodi', 'Godrej Cumque Facere', 'Xiaomi Corporis Corrupti', 'Samsung At Ea',
-        'Whirlpool Vel Perspiciatis', 'LG Excepturi At', 'OnePlus Enim Voluptatem', 'Godrej Eius Earum',
-        'Acer Laboriosam Rerum', 'Acer Consequatur Praesentium', 'Panasonic Vitae Fugit',
-        'Acer Officiis Eum', 'OnePlus Totam Similique', 'LG Quis Illo', 'Acer Porro Consectetur',
-        'Samsung Sint Officiis', 'Samsung Voluptatum Quo', 'LG Quibusdam Recusandae', 'LG Qui Qui',
-        'HP Temporibus Quam', 'Apple Earum Labore', 'Whirlpool Ut Architecto', 'HP Similique Vel',
-        'Samsung Nulla Porro', 'LG Nesciunt Eveniet', 'Xiaomi Veritatis Cumque', 'HP Eius Omnis',
-        'Apple Quae Temporibus', 'OnePlus Nostrum Officia', 'Panasonic Velit In', 'Samsung Doloribus Non',
-        'Apple Hic Magnam', 'Sony Possimus Iure', 'Acer Eligendi Incidunt', 'Godrej Minus Eligendi',
-        'Panasonic Ducimus Recusandae', 'LG Ut Cumque', 'HP Esse Officia', 'Samsung Ab Quibusdam',
-        'OnePlus Dolores Illo', 'Acer Quas Dicta', 'Panasonic Neque Voluptas', 'OnePlus Ea Aspernatur',
-        'Lenovo Enim Quasi', 'Sony Reprehenderit Dicta', 'LG Modi Vel', 'Acer Eos Vero',
-        'Dell Quisquam Inventore', 'Samsung Itaque Voluptates', 'Godrej Nam Eaque', 'HP Earum Quas',
-        'Apple Quas Ad', 'Apple Consequatur Nisi', 'Samsung Saepe Aperiam', 'Samsung Praesentium Dolores',
-        'Panasonic Quos Ullam', 'Acer Voluptate Libero', 'OnePlus Recusandae Iusto', 'Acer Natus Nihil',
-        'Samsung Dolores Explicabo', 'Godrej Aliquam Excepturi', 'Whirlpool Maiores Dolor',
-        'Samsung Blanditiis Voluptates', 'Samsung Quibusdam Iusto', 'Panasonic Necessitatibus Perferendis',
-        'OnePlus Illo Fugit', 'Panasonic Accusantium Necessitatibus', 'Whirlpool Fugiat Totam',
-        'Xiaomi Ea Fugiat', 'Godrej Laborum Ipsa', 'Xiaomi Debitis Sint', 'Samsung Aliquid Voluptatum',
-        'Samsung Sint Ad', 'Samsung Ipsa Aspernatur', 'Samsung Beatae Iusto', 'Xiaomi Tempore Quis',
-        'Acer Non Pariatur', 'OnePlus Dolor Itaque', 'Samsung Dolores Ex', 'Samsung Eligendi Voluptas',
-        'LG Illo Eligendi', 'Xiaomi Quibusdam Facilis', 'Samsung Magnam Dolorum', 'Sony At Fugiat',
-        'Apple Blanditiis Illo', 'Acer Minus Quia', 'Panasonic Reiciendis Cupiditate', 'HP Consequatur Ex',
-        'LG Nobis Nihil', 'LG Dicta Sed', 'Samsung Non Beatae', 'Lenovo Eum Architecto',
-        'Samsung Itaque Qui', 'Lenovo Placeat Dolor', 'Acer Nam Deleniti', 'LG Et Nisi',
-        'OnePlus Accusantium Debitis', 'HP Doloribus Pariatur', 'Lenovo Deleniti Harum', 'Xiaomi Qui Quas',
-        'Godrej Sequi Quod', 'OnePlus Labore Esse', 'LG Quod Excepturi', 'Samsung Quis Eos',
-        'HP Odio Magnam', 'Acer At Reiciendis', 'Samsung Vitae Blanditiis', 'Lenovo Autem Quia',
-        'Acer Ex Culpa', 'Samsung Possimus Omnis', 'Lenovo In Quibusdam', 'LG Pariatur Quae',
-        'Lenovo Voluptatem Dolorum', 'Samsung Ducimus Sunt', 'HP Corrupti Beatae', 'Acer Sequi Incidunt',
-        'LG Dolorum Iure', 'Samsung Quasi Sint', 'Samsung Architecto Nisi', 'Sony Sit Rem',
-        'Lenovo A Reprehenderit', 'Samsung Nemo Quae', 'Apple Voluptates Voluptatem',
-        'LG Ducimus Reiciendis', 'Lenovo Explicabo Velit', 'LG Saepe Molestias', 'HP Reprehenderit Maxime',
-        'Apple Possimus Nesciunt', 'Sony Corporis Minima', 'Samsung Dolorem Iure', 'LG Ad Ipsam',
-        'Acer Earum Quo', 'Lenovo Sint Quos', 'Lenovo Omnis Facere', 'Godrej Molestias Amet',
-        'Dell Quia Vero', 'Samsung Possimus Architecto', 'Samsung Eveniet Voluptate', 'LG Consequatur Quae',
-        'Sony Fugiat At', 'Dell Magni Maxime', 'Samsung Tenetur Temporibus', 'Acer Suscipit Voluptatum',
-        'Dell Nemo Odit', 'Acer Aspernatur Occaecati', 'Apple Consequuntur Ipsa', 'LG Dolor Officiis',
-        'LG Blanditiis Eum', 'Panasonic Maxime At', 'Whirlpool Iste Praesentium', 'Godrej Ducimus Possimus',
-        'Samsung Nesciunt Saepe', 'Whirlpool Mollitia Maxime', 'Panasonic Repudiandae Ullam',
-        'Samsung Culpa Beatae', 'Samsung Nemo Distinctio', 'Lenovo Quis Maiores', 'Acer Nihil Ea',
-        'Dell Fuga Ducimus', 'Samsung Officiis A', 'HP Tempore Nihil', 'Xiaomi Iste Consequuntur',
-        'Dell Ullam Labore', 'Xiaomi Saepe Consequuntur', 'OnePlus Assumenda Minus', 'Xiaomi Magni Doloribus',
-        'Acer Magni Fugit', 'Acer Reprehenderit Accusantium', 'Godrej Non Illo', 'Apple Reprehenderit Alias'
+        # Add more products here
     ],
     'Price': [
         15000, 12000, 30000, 25000, 18000, 21000, 24000, 27000, 19000, 22000,
         23000, 20000, 26000, 24000, 22000, 25000, 23000, 26000, 28000, 27000,
-        55000, 45000, 48000, 60000, 70000, 65000, 75000, 55000, 49000, 58000,
-        72000, 80000, 40000, 43000, 44000, 45000, 46000, 47000, 50000, 49000
+        # Add more prices here
     ]
 }
+
 # Define company to product type mapping
 company_to_product_type = {
     'Whirlpool': 'Appliance',
@@ -219,11 +175,20 @@ company_to_product_type = {
     'OnePlus': 'Mobile'
 }
 
+# Define a list of supported product types
+supported_product_types = ['mobile', 'laptop', 'appliance', 'electronics', 'tv']
 
 def extract_company_from_product_name(product_name):
     for company in company_to_product_type.keys():
         if company.lower() in product_name.lower():
             return company
+    return None
+
+def extract_product_type_from_input(user_input):
+    """Extract product type from user input by checking against the supported product types."""
+    for product_type in supported_product_types:
+        if product_type in user_input.lower():
+            return product_type.capitalize()  # Capitalize to match the format in `company_to_product_type`
     return None
 
 def recommend_product_by_budget(user_input):
@@ -235,22 +200,29 @@ def recommend_product_by_budget(user_input):
     else:
         return "Please specify a valid budget range."
 
-    # Filter products based on extracted company and budget
+    # Extract the product type from the user input
+    product_type = extract_product_type_from_input(user_input)
+    if not product_type:
+        return "Sorry, we currently can't handle your request. Please specify a valid product type (e.g. Mobile, Laptop, Appliance, etc. along with the budget range like, laptop ranging between 20000 to 40000)."
+
+    # Filter products based on extracted budget
     filtered_products = products_data[
-        (products_data['Price'] >= budget_min) &
+        (products_data['Price'] >= budget_min) & 
         (products_data['Price'] <= budget_max)
     ]
 
-    # Further filter to include only mobiles
+    # Further filter to include only the specified product type
     filtered_products = filtered_products[
-        filtered_products['ProductName'].apply(lambda name: company_to_product_type.get(extract_company_from_product_name(name), '') == 'Mobile')
+        filtered_products['ProductName'].apply(
+            lambda name: company_to_product_type.get(extract_company_from_product_name(name), '') == product_type
+        )
     ]
 
     if not filtered_products.empty:
         product_list = '\n '.join(filtered_products['ProductName'].tolist())
-        return f"Here are the mobile options in your budget: \n{product_list}"
+        return f"Here are the {product_type.lower()} options in your budget:\n{product_list}"
     else:
-        return "Sorry, no mobiles are available in your specified budget."\
+        return f"Sorry, no {product_type.lower()}s are available in your specified budget."
 
 def recommend_laptops_by_budget(user_input):
     # Extract budget range from user input
@@ -403,7 +375,7 @@ def store_count(user_input):
 # Feature 5: Track order by customer ID and product name
 def track_order_by_details(user_input):
     global conversation_state
-    conversation_state['expecting_order_details'] = False
+    st.session_state.conversation_state['expecting_order_details'] = False
 
     # Convert CustomerID and ProductID columns to integers
     products_data['ProductID'] = pd.to_numeric(products_data['ProductID'], errors='coerce')
@@ -418,7 +390,7 @@ def track_order_by_details(user_input):
 
     customer_id = None
     product_id = None
-    product_name = None
+    product_name = "the respective product"
 
     # Try to find a valid customer ID from the numeric values
     for value in numeric_values:
@@ -455,10 +427,6 @@ def track_order_by_details(user_input):
     # Check if product ID is found
     if product_id is None:
         return "Sorry, I couldn't find the product ID for the given product name."
-
-    if product_id is not None:
-    # Find the product name for the given product ID
-       product_name = products_data[products_data['ProductID'] == product_id]['ProductName']
 
     # Filter the orders_data using customer ID and product ID
     order = orders_data[(orders_data['CustomerID'] == customer_id) | (orders_data['ProductID'] == product_id)]
@@ -533,21 +501,15 @@ def find_product_name_by_id(user_input):
     else:
         return "Please provide a valid product ID."
 
-# Running the chatbot interaction
+# Main function to run the app
 def main():
-    st.title("RetailX Chatbot")
-    
-    # Welcome message
-    st.write("Hello! I am RetailX Assistant. How can I help you today?")
-    
-    # Create a text input for user query
-    user_input = st.text_input("Your Query:")
-    
-    if user_input:
-        # Process the query and display the response
-        response = process_query(user_input)
-        st.write(response)
+    st.title("RetailX Assistant")
+    st.write(welcome_message())
 
-# Run the Streamlit app
+    user_input = st.text_input("How can I assist you today?")
+
+    if user_input:
+        handle_user_input(user_input)
+
 if __name__ == "__main__":
     main()
