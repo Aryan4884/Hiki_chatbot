@@ -3,7 +3,8 @@ import pandas as pd
 import nltk
 import re
 
-nltk.download('punkt')
+nltk.download('punkt', download_dir='/root/nltk_data/tokenizers/punkt')
+nltk.download('punkt_tab')
 
 # Load data from CSV files
 products_data = pd.read_csv('products.csv')
@@ -12,8 +13,7 @@ orders_data = pd.read_csv('orders.csv')
 stores_data = pd.read_csv('stores.csv')
 
 # Clean and prepare data
-products_data['Price'] = products_data['Price'].replace({'\\? ': '', ',': ''}, regex=True).astype(float, errors='ignore')
-
+products_data['Price'] = products_data['Price'].replace({'\? ': '', ',': ''}, regex=True).astype(float, errors='ignore')
 
 # Initialize conversation state in session_state
 if 'conversation_state' not in st.session_state:
