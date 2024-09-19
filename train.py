@@ -3,7 +3,7 @@ import pandas as pd
 import nltk
 import re
 
-nltk.download('punkt', download_dir='/root/nltk_data/tokenizers/punkt')
+nltk.download('punkt')
 nltk.download('punkt_tab')
 
 # Load data from CSV files
