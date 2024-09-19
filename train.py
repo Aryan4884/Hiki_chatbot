@@ -12,7 +12,8 @@ orders_data = pd.read_csv('orders.csv')
 stores_data = pd.read_csv('stores.csv')
 
 # Clean and prepare data
-products_data['Price'] = products_data['Price'].replace({'\? ': '', ',': ''}, regex=True).astype(float, errors='ignore')
+products_data['Price'] = products_data['Price'].replace({'\\? ': '', ',': ''}, regex=True).astype(float, errors='ignore')
+
 
 # Initialize conversation state in session_state
 if 'conversation_state' not in st.session_state:
